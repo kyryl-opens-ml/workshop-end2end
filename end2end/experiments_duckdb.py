@@ -7,10 +7,9 @@ from peft import LoraConfig
 import torch
 import transformers
 from trl import SFTTrainer
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 
 logger = logging.getLogger(__name__)
-
 
 ###################
 # Hyper-parameters
@@ -34,24 +33,21 @@ training_config = {
     "save_total_limit": 1,
     "seed": 0,
     "gradient_checkpointing": True,
-    "gradient_checkpointing_kwargs":{"use_reentrant": False},
     "gradient_accumulation_steps": 1,
     "warmup_ratio": 0.2,
-    "report_to": [None],
-    }
-
-peft_config = {
-    "r": 16,
-    "lora_alpha": 32,
-    "lora_dropout": 0.05,
-    "bias": "none",
-    "task_type": "CAUSAL_LM",
-    "target_modules": "all-linear",
-    "modules_to_save": None,
+    "report_to": ["none"],
 }
-train_conf = TrainingArguments(**training_config)
-peft_conf = LoraConfig(**peft_config)
 
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],  # Llama-specific layers
+)
+
+train_conf = TrainingArguments(**training_config)
 
 ###############
 # Setup logging
@@ -74,29 +70,24 @@ logger.warning(
     + f" distributed training: {bool(train_conf.local_rank != -1)}, 16-bits training: {train_conf.fp16}"
 )
 logger.info(f"Training/evaluation parameters {train_conf}")
-logger.info(f"PEFT parameters {peft_conf}")
-
+logger.info(f"PEFT parameters {peft_config}")
 
 ################
 # Model Loading
 ################
 
-# checkpoint_path = "microsoft/Phi-3.5-mini-instruct"
 checkpoint_path = "meta-llama/Llama-3.2-1B-Instruct"
 model_kwargs = dict(
     use_cache=False,
     trust_remote_code=True,
     attn_implementation="flash_attention_2",  # loading the model with flash-attenstion support
     torch_dtype=torch.bfloat16,
-    device_map=None
+    device_map="auto",
 )
 model = AutoModelForCausalLM.from_pretrained(checkpoint_path, **model_kwargs)
 tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-tokenizer.model_max_length = 2048
-tokenizer.pad_token = tokenizer.unk_token  # use unk rather than eos token to prevent endless generation
-tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+tokenizer.pad_token_id = tokenizer.eos_token_id  # Llama uses eos_token as pad_token
 tokenizer.padding_side = 'right'
-
 
 ##################
 # Data Processing
@@ -147,7 +138,7 @@ processed_test_dataset = test_dataset.map(
 trainer = SFTTrainer(
     model=model,
     args=train_conf,
-    peft_config=peft_conf,
+    peft_config=peft_config,
     train_dataset=processed_train_dataset,
     eval_dataset=processed_test_dataset,
     max_seq_length=2048,
