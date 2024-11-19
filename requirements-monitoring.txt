@@ -1,4 +1,0 @@
-argilla
-streamlit
-pydantic-settings==2.0.3
-text_generation
