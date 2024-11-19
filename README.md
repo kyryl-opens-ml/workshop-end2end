@@ -5,7 +5,7 @@
 # Workshop and discord
 
 - For a video lecture explaining this code, [watch this webinar](https://edu.kyrylai.com/courses/webinar-machine-learning-in-production)
-- For support and questions, join this [Discord server](https://discord.gg/RNjfNrrN)
+- For support and questions, join this [Discord server](https://discord.gg/5NF2NAsGEM)
 
 # Tools to install 
 
