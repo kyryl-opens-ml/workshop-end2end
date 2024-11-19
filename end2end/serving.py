@@ -2,7 +2,6 @@ from text_generation import Client
 
 
 def main():
-
     client = Client("http://54.167.93.63:8011")
 
     # Prompt the base LLM
@@ -11,7 +10,9 @@ def main():
 
     # Prompt a LoRA adapter
     adapter_id = "kyryl-georgian/flan-base-sql"
-    print(client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text)
+    print(
+        client.generate(prompt, max_new_tokens=64, adapter_id=adapter_id).generated_text
+    )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,21 @@
-from dagster import AssetExecutionContext, AssetOut, Config, MetadataValue, Output, asset, multi_asset
+from dagster import (
+    AssetExecutionContext,
+    AssetOut,
+    Config,
+    MetadataValue,
+    Output,
+    asset,
+    multi_asset,
+)
 from datasets import concatenate_datasets
 
-from end2end.data import ARGILLA_KEY, ARGILLA_NAMESPACE, ARGILLA_URI, load_data_for_labeling, load_text_to_sql_dataset
+from end2end.data import (
+    ARGILLA_KEY,
+    ARGILLA_NAMESPACE,
+    ARGILLA_URI,
+    load_data_for_labeling,
+    load_text_to_sql_dataset,
+)
 from end2end.experiments import (
     AutoTokenizer,
     ScriptArguments,
@@ -23,8 +37,14 @@ from end2end.experiments import (
 def origin_text2sql_dataset(context: AssetExecutionContext):
     df_train, df_val = load_text_to_sql_dataset()
 
-    context.add_output_metadata({"df_train": MetadataValue.md(df_train.head().to_markdown())}, output_name="df_train")
-    context.add_output_metadata({"df_val": MetadataValue.md(df_train.head().to_markdown())}, output_name="df_val")
+    context.add_output_metadata(
+        {"df_train": MetadataValue.md(df_train.head().to_markdown())},
+        output_name="df_train",
+    )
+    context.add_output_metadata(
+        {"df_val": MetadataValue.md(df_train.head().to_markdown())},
+        output_name="df_val",
+    )
 
     return df_train, df_val
 
@@ -36,7 +56,9 @@ class LabelingDataConfig(Config):
 
 
 @asset(group_name="data")
-def labeling_data(context: AssetExecutionContext, config: LabelingDataConfig, df_train, df_val) -> str:
+def labeling_data(
+    context: AssetExecutionContext, config: LabelingDataConfig, df_train, df_val
+) -> str:
     dataset_name = f"{config.dataset_name}-{context.run_id}"
     url_train, url_val = load_data_for_labeling(
         dataset_name=dataset_name, sample=config.sample, num_sample=config.num_sample
@@ -55,7 +77,10 @@ def labeling_data(context: AssetExecutionContext, config: LabelingDataConfig, df
 def test_dataset(context: AssetExecutionContext, labeling_data: str):
     dataset_name_full = f"{labeling_data}-val"
     dataset = get_argilla_dataset_formatted(
-        dataset_name_full=dataset_name_full, api_url=ARGILLA_URI, api_key=ARGILLA_KEY, workspace=ARGILLA_NAMESPACE
+        dataset_name_full=dataset_name_full,
+        api_url=ARGILLA_URI,
+        api_key=ARGILLA_KEY,
+        workspace=ARGILLA_NAMESPACE,
     )
     return dataset
 
@@ -64,7 +89,10 @@ def test_dataset(context: AssetExecutionContext, labeling_data: str):
 def train_dataset(context: AssetExecutionContext, labeling_data: str):
     dataset_name_full = f"{labeling_data}-train"
     dataset = get_argilla_dataset_formatted(
-        dataset_name_full=dataset_name_full, api_url=ARGILLA_URI, api_key=ARGILLA_KEY, workspace=ARGILLA_NAMESPACE
+        dataset_name_full=dataset_name_full,
+        api_url=ARGILLA_URI,
+        api_key=ARGILLA_KEY,
+        workspace=ARGILLA_NAMESPACE,
     )
     return dataset
 
@@ -73,7 +101,10 @@ def train_dataset(context: AssetExecutionContext, labeling_data: str):
 def feedback_dataset():
     dataset_name_full = "feedback-open-model"
     dataset = get_argilla_dataset_formatted(
-        dataset_name_full=dataset_name_full, api_url=ARGILLA_URI, api_key=ARGILLA_KEY, workspace=ARGILLA_NAMESPACE
+        dataset_name_full=dataset_name_full,
+        api_url=ARGILLA_URI,
+        api_key=ARGILLA_KEY,
+        workspace=ARGILLA_NAMESPACE,
     )
     return dataset
 
@@ -129,8 +160,13 @@ def trained_model(
         script_args=script_args,
     )
 
-    metrics = eval_model(test_data=test_dataset.select(list(range(100))), model_name=training_args.output_dir)
-    metadata = {name: MetadataValue.float(float(value)) for name, value in metrics.items()}
+    metrics = eval_model(
+        test_data=test_dataset.select(list(range(100))),
+        model_name=training_args.output_dir,
+    )
+    metadata = {
+        name: MetadataValue.float(float(value)) for name, value in metrics.items()
+    }
     context.add_output_metadata(metadata)
 
 
@@ -153,6 +189,11 @@ def trained_model_with_feedback(
         training_args=training_args,
         script_args=script_args,
     )
-    metrics = eval_model(test_data=test_dataset.select(list(range(100))), model_name=training_args.output_dir)
-    metadata = {name: MetadataValue.float(float(value)) for name, value in metrics.items()}
+    metrics = eval_model(
+        test_data=test_dataset.select(list(range(100))),
+        model_name=training_args.output_dir,
+    )
+    metadata = {
+        name: MetadataValue.float(float(value)) for name, value in metrics.items()
+    }
     context.add_output_metadata(metadata)

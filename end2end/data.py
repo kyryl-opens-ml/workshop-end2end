@@ -1,110 +1,143 @@
-from typing import Tuple
-
 import argilla as rg
-import pandas as pd
-import typer
 from datasets import load_dataset
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from sklearn.model_selection import train_test_split
+import argilla as rg
+from datasets import load_dataset, Dataset
+import sqlite3
+import json
+from typing import Dict, List
+from retry import retry
 from tqdm import tqdm
 
+from openai import OpenAI
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
-    ARGILLA_URI: str
-    ARGILLA_KEY: str
-    ARGILLA_NAMESPACE: str
+import typer
+from pydantic import BaseModel
 
+class Text2SQLSample(BaseModel):
+    prompt: str
+    schema: str
+    query: str
 
-ARGILLA_URI = Settings().ARGILLA_URI
-ARGILLA_KEY = Settings().ARGILLA_KEY
-ARGILLA_NAMESPACE = Settings().ARGILLA_NAMESPACE
+client = rg.Argilla(api_url="http://0.0.0.0:6900", api_key="argilla.apikey")
 
 
-def load_text_to_sql_dataset() -> Tuple[pd.DataFrame, pd.DataFrame]:
-    print("Loading sql-create-context dataset")
-    dataset = load_dataset("b-mc2/sql-create-context")
-    print(f"Loaded dataset {dataset}")
+def create_text2sql_dataset(dataset_name: str, data_samples: Dataset | List[Dict]):
+    guidelines = """
+    Please examine the given DuckDB SQL question and context. 
+    Write the correct DuckDB SQL query that accurately answers the question based on the context provided. 
+    Ensure the query follows DuckDB SQL syntax and logic correctly.
+    """
 
-    print("Split to train & test")
-    df = dataset["train"].to_pandas()
-    df = df.rename(
-        columns={
-            "answer": "sql_query",
-            "context": "sql_schema",
-            "question": "user_query",
-        }
-    )
-
-    df_train, df_val = train_test_split(df, test_size=0.1, random_state=42)
-    print(
-        f"Train size {df_train.shape} {df_train.columns}, Validation size {df_val.shape} {df_val.columns}"
-    )
-
-    return df_train, df_val
-
-
-def _upload_from_pandas(df: pd.DataFrame, dataset_name: str) -> str:
-    dataset = rg.FeedbackDataset(
-        guidelines="Text to SQL.",
+    settings = rg.Settings(
+        guidelines=guidelines,
         fields=[
-            rg.TextField(name="user_query", title="Text from user"),
-            rg.TextField(name="sql_query", title="SQL query"),
-            rg.TextField(name="sql_schema", title="SQL schema"),
+            rg.TextField(
+                name="prompt",
+                title="Prompt",
+                use_markdown=False,
+            ),
+            rg.TextField(
+                name="schema",
+                title="Schema",
+                use_markdown=True,
+            ),
+            rg.TextField(
+                name="query",
+                title="Query",
+                use_markdown=True,
+            ),            
         ],
         questions=[
             rg.TextQuestion(
-                name="corrected_sql_query",
-                title="Provide a correction to the query.",
-                required=False,
+                name="sql",
+                title="Please write SQL for this query",
+                description="Please write SQL for this query",
+                required=True,
                 use_markdown=True,
-            ),
-            rg.TextQuestion(
-                name="corrected_sql_schema",
-                title="Provide a correction to the table schema.",
-                required=False,
-                use_markdown=True,
-            ),
-            rg.LabelQuestion(
-                name="correct", title="Is sample correct", labels=["true", "false"]
-            ),
+            )
         ],
     )
 
+    if 'admin' not in [x.name for x in client.workspaces.list()]:
+        workspace = rg.Workspace(name="admin")
+        workspace.create()
+
+    dataset = rg.Dataset(
+        name=dataset_name,
+        workspace="admin",
+        settings=settings,
+        client=client,
+    )
+    dataset.create()
     records = []
-    for idx in tqdm(range(len(df))):
-        sample = df.iloc[idx]
-        record = rg.FeedbackRecord(fields=sample)
-        records.append(record)
+    for idx in range(len(data_samples)):
+        x = rg.Record(
+            fields={
+                "prompt": data_samples[idx]["prompt"],
+                "schema": data_samples[idx]["schema"],
+                "query": data_samples[idx]["query"],
+            },
+        )
+        records.append(x)
+    dataset.records.log(records, batch_size=1000)
 
-    dataset.add_records(records)
-    res = dataset.push_to_argilla(name=dataset_name)
-    return res.url
+def upload_duckdb_text2sql():
+    dataset_name = "motherduckdb/duckdb-text2sql-25k"
+    raw_dataset = load_dataset(dataset_name, split="train")
+    raw_datasets = raw_dataset.train_test_split(test_size=0.05, seed=42)
+    
+    # raw_datasets['train'].to_json(path_or_buf='./data/train.json')
+    # raw_datasets['test'].to_json(path_or_buf='./data/test.json')
 
-
-def load_data_for_labeling(
-    dataset_name: str = "text2sql", sample: bool = False, num_sample: int = 10_000
-) -> Tuple[str, str]:
-    df_train, df_val = load_text_to_sql_dataset()
-    if sample:
-        df_train = df_train.sample(n=num_sample)
-
-    rg.init(api_url=ARGILLA_URI, api_key=ARGILLA_KEY, workspace=ARGILLA_NAMESPACE)
-    url_train = _upload_from_pandas(df=df_train, dataset_name=f"{dataset_name}-train")
-    print(f"url_train = {url_train}")
-    url_val = _upload_from_pandas(df=df_val, dataset_name=f"{dataset_name}-val")
-    print(f"url_val = {url_val}")
-    return url_train, url_val
+    create_text2sql_dataset(dataset_name='duckdb-text2sql-train', data_samples=raw_datasets['train'].to_list())
+    create_text2sql_dataset(dataset_name='duckdb-text2sql-test', data_samples=raw_datasets['test'].to_list())
 
 
-def cli():
-    app = typer.Typer()
-    app.command()(load_text_to_sql_dataset)
-    app.command()(load_data_for_labeling)
-    app()
+@retry(tries=3, delay=1)
+def generate_synthetic_example() -> Dict[str, str]:
+    client = OpenAI()
 
+    prompt = """
+    Generate a example for text2sql task for DuckDB database: 
+    The example should include 
+    - schema: a valid database schema
+    - prompt: a typical user question related to this table prompt
+    - query: the corresponding SQL query to answer user prompt.
+    Return only JSON.
+    """
+
+    chat_completion = client.beta.chat.completions.parse(
+        messages=[
+            {
+                "role": "system",
+                "content": "You are DuckDB and SQL expert.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        model="gpt-4o",
+        response_format=Text2SQLSample,
+        temperature=1,
+    )
+    sample = chat_completion.choices[0].message.parsed
+    return sample.model_dump()
+
+
+def create_text2sql_dataset_synthetic(num_samples: int = 10):
+    
+
+    samples = []
+    for _ in tqdm(range(num_samples)):
+        sample = generate_synthetic_example()
+        samples.append(sample)
+
+    dataset_name = "duckdb-text2sql-synthetic"
+    create_text2sql_dataset(dataset_name=dataset_name, data_samples=samples)
 
 if __name__ == "__main__":
-    cli()
+    app = typer.Typer()
+    app.command()(upload_duckdb_text2sql)
+    app.command()(create_text2sql_dataset_synthetic)
+    app()

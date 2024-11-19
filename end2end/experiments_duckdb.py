@@ -2,12 +2,12 @@ import sys
 import logging
 
 import datasets
-from datasets import load_dataset
-from peft import LoraConfig
+from datasets import load_dataset, Dataset
+from peft import LoraConfig, AutoPeftModelForCausalLM
 import torch
 import transformers
 from trl import SFTTrainer
-from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ training_config = {
     "lr_scheduler_type": "cosine",
     "num_train_epochs": 1,
     "max_steps": -1,
-    "output_dir": "./checkpoint_dir",
+    "output_dir": "./checkpoint_dir_duckdb",
     "overwrite_output_dir": True,
     "per_device_eval_batch_size": 4,
     "per_device_train_batch_size": 4,
@@ -99,20 +99,23 @@ def apply_chat_template(
 ):
     
     messages = []
-    user = {"content": f"{example['context']}\n Input: {example['question']}", "role": "user"}
-    assistant = {"content": f"{example['answer']}", "role": "assistant"}
+    user = {"content": f"{example['schema']}\n Input: {example['query']}", "role": "user"}
+    assistant = {"content": f"{example['query']}", "role": "assistant"}
 
     messages = [user, assistant]
     example["text"] = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=False)
     return example
 
-dataset_name = "b-mc2/sql-create-context"
-raw_dataset = load_dataset(dataset_name, split="train")
-raw_datasets = raw_dataset.train_test_split(test_size=0.05, seed=42)
+# dataset_name = "motherduckdb/duckdb-text2sql-25k"
+# raw_dataset = load_dataset(dataset_name, split="train")
+# raw_datasets = raw_dataset.train_test_split(test_size=0.05, seed=42)
 
-train_dataset = raw_datasets["train"]
-test_dataset = raw_datasets["test"]
+# train_dataset = raw_datasets["train"]
+# test_dataset = raw_datasets["test"]
+
+train_dataset = Dataset.from_json("train.json")
+test_dataset = Dataset.from_json("test.json")
 column_names = list(train_dataset.features)
 
 processed_train_dataset = train_dataset.map(
@@ -167,3 +170,34 @@ trainer.save_metrics("eval", metrics)
 # # Save model
 # ############
 trainer.save_model(train_conf.output_dir)
+
+
+# ############
+# # Run model inference
+# ############
+
+device_map = {"": 0}
+new_model = AutoPeftModelForCausalLM.from_pretrained(
+    training_config['output_dir'],
+    low_cpu_mem_usage=True,
+    return_dict=True,
+    torch_dtype=torch.bfloat16,
+    trust_remote_code=True,
+    device_map=device_map,
+)
+merged_model = new_model.merge_and_unload()
+
+tokenizer = AutoTokenizer.from_pretrained(training_config['output_dir'], trust_remote_code=True)
+pipe = pipeline("text-generation", model=merged_model, tokenizer=tokenizer)
+prompt = apply_chat_template(example=test_dataset[0], tokenizer=tokenizer)
+outputs = pipe(
+    prompt,
+    max_new_tokens=256,
+    do_sample=True,
+    num_beams=1,
+    temperature=0.3,
+    top_k=50,
+    top_p=0.95,
+    max_time=180,
+)
+sql = outputs[0]["generated_text"][len(prompt) :].strip()
