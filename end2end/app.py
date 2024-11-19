@@ -1,25 +1,19 @@
 import streamlit as st
 import duckdb
-import pandas as pd
-from datasets import Dataset
 from openai import OpenAI
-from tqdm import tqdm
-import typer
-import json
 
-import evaluate
-from tqdm import tqdm
-import typer
-from typing import List
 
 from pydantic import BaseModel
-from langfuse.decorators import observe
+from traceloop.sdk import Traceloop
+from traceloop.sdk.decorators import workflow
 
+Traceloop.init(app_name="duckdb-project", disable_batch=True)
 
 class Text2SQLSample(BaseModel):
     query: str
 
-@observe
+# @observe
+@workflow(name="text2sql")
 def text2sql(user_prompt: str, schema: str, table_name: str) -> str:
     model: str = "gpt-4o"
     client = OpenAI()

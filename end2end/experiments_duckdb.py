@@ -4,6 +4,7 @@ import sys
 import datasets
 import torch
 import transformers
+from datasets import Dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig
 from transformers import (
     AutoModelForCausalLM,

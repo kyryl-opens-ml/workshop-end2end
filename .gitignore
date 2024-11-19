@@ -161,3 +161,4 @@ cython_debug/
 taskfile.yml
 README.p.md
 data
+tmp*
