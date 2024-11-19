@@ -1,17 +1,15 @@
-import argilla as rg
-from datasets import load_dataset
-import argilla as rg
-from datasets import load_dataset, Dataset
-import sqlite3
 import json
+import sqlite3
 from typing import Dict, List
+
+import argilla as rg
+import typer
+from datasets import Dataset, load_dataset
+from openai import OpenAI
+from pydantic import BaseModel
 from retry import retry
 from tqdm import tqdm
 
-from openai import OpenAI
-
-import typer
-from pydantic import BaseModel
 
 class Text2SQLSample(BaseModel):
     prompt: str

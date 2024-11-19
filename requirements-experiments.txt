@@ -1,9 +1,0 @@
-transformers
-peft
-scikit-learn
-ipython
-datasets
-trl
-bitsandbytes
-typer
-argilla

@@ -1,15 +1,13 @@
-from datasets import Dataset
-from openai import OpenAI
-from tqdm import tqdm
-import typer
 import json
-
-import evaluate
-from tqdm import tqdm
-import typer
 from typing import List
 
+import evaluate
+import typer
+from datasets import Dataset
+from openai import OpenAI
 from pydantic import BaseModel
+from tqdm import tqdm
+
 
 class Text2SQLSample(BaseModel):
     query: str

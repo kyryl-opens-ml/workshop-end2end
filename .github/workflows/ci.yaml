@@ -35,13 +35,11 @@ jobs:
         run: |
           rm -rf /opt/hostedtoolcache
                 
-
-      - name: Build and push experiments with cache
+      - name: Build and push docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          target: experiments
           tags: ghcr.io/kyryl-opens-ml/workshop-experiments:latest
           cache-from: type=registry,ref=ghcr.io/kyryl-opens-ml/workshop-experiments:buildcache
           cache-to: type=registry,ref=ghcr.io/kyryl-opens-ml/workshop-experiments:buildcache,mode=max

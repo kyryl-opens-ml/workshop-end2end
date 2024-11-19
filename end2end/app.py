@@ -13,25 +13,27 @@ import typer
 from typing import List
 
 from pydantic import BaseModel
-from pydantic import BaseModel
+from langfuse.decorators import observe
+
 
 class Text2SQLSample(BaseModel):
     query: str
 
-
-def text2sql(user_query: str, schema: str) -> str:
+@observe
+def text2sql(user_prompt: str, schema: str, table_name: str) -> str:
     model: str = "gpt-4o"
     client = OpenAI()
 
-    prompt_template = """
+    prompt = f"""
     Write the corresponding SQL query based on user prompt and database schema:
 
     - user prompt: {user_prompt}
     - database schema: {schema}
     Return only JSON.
+
+    Table name is {table_name}
     """
 
-    prompt = prompt_template.format(user_prompt=x['prompt'], schema=x['schema'])
     chat_completion = client.beta.chat.completions.parse(
     messages=[
         {
@@ -63,13 +65,11 @@ st.title("Hugging Face Dataset Query with DuckDB")
 # Input for Hugging Face dataset link
 hf_link = st.text_input(
     "Enter the Hugging Face dataset link (hf://...):",
-    "hf://datasets/datasets-examples/doc-formats-csv-1/data.csv",
+    "hf://datasets/UCSC-VLAA/Recap-DataComp-1B/data/train_data/train-00000-of-02719.parquet",
 )
 
-# Input for SQL query
-default_query = f"SELECT * FROM '{hf_link}' LIMIT 10;"
-query = st.text_area("Enter your SQL query:", default_query, height=100)
-
+# Input for NLP query
+nlp_query = st.text_area("Enter your query in natural language:", "Show me the first 10 rows.")
 
 # Execute query when button is clicked
 if st.button("Run Query"):
@@ -80,12 +80,23 @@ if st.button("Run Query"):
         schema_df = conn.execute(schema_query).df()
         st.write("### Dataset Schema:")
         st.dataframe(schema_df)
+
+        # Convert schema_df to string format suitable for text2sql
+        schema_str = "\n".join([f"{row['column_name']} ({row['column_type']})" for index, row in schema_df.iterrows()])
+
     except Exception as e:
         st.error(f"An error occurred while fetching schema: {e}")
+        schema_str = ""  # Ensure schema_str is defined
 
     try:
-        # Execute the query
-        df = conn.execute(query).df()
+        # Convert NLP query to SQL using text2sql
+        sql_query = text2sql(nlp_query, schema_str, table_name=hf_link)
+        st.write("### Generated SQL Query:")
+        st.code(sql_query, language='sql')
+
+        # sql_query = sql_query.replace("table_name", hf_link)
+        # Execute the SQL query
+        df = conn.execute(sql_query).df()
         # Display the results
         st.write("### Query Results:")
         st.dataframe(df)
